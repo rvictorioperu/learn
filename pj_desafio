@@ -1,0 +1,957 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Persona Jurídica: El Desafío</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <!-- Tone.js CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global variables for Firebase
+        window.firebaseApp = null;
+        window.db = null;
+        window.auth = null;
+        window.userId = 'guest'; // Default to guest until authenticated
+        window.fbCollection = null; // Make collection globally accessible
+        window.fbAddDoc = null;     // Make addDoc globally accessible
+
+        // Initialize Firebase and authenticate
+        const initFirebase = async () => {
+            try {
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+
+                if (Object.keys(firebaseConfig).length === 0) {
+                    console.error("Firebase config is missing. Firestore will not be available.");
+                    return;
+                }
+
+                window.firebaseApp = initializeApp(firebaseConfig);
+                window.db = getFirestore(window.firebaseApp);
+                window.auth = getAuth(window.firebaseApp);
+                window.fbCollection = collection; // Assign to global window object
+                window.fbAddDoc = addDoc;         // Assign to global window object
+
+                // Sign in with custom token if available, otherwise anonymously
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(window.auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(window.auth);
+                }
+
+                onAuthStateChanged(window.auth, (user) => {
+                    if (user) {
+                        window.userId = user.uid;
+                        console.log("Firebase authenticated. User ID:", window.userId);
+                    } else {
+                        window.userId = 'guest';
+                        console.log("Firebase not authenticated. Using guest ID.");
+                    }
+                });
+            } catch (error) {
+                console.error("Error initializing Firebase or authenticating:", error);
+            }
+        };
+
+        // Call initFirebase when the script loads
+        initFirebase();
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6; /* Light gray background */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .game-container {
+            background-color: #ffffff;
+            border-radius: 1.5rem; /* rounded-3xl */
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); /* shadow-xl */
+            padding: 2.5rem; /* p-10 */
+            max-width: 900px; /* Increased max-width for better layout */
+            width: 100%;
+            text-align: center;
+            position: relative;
+            overflow: hidden; /* Ensures rounded corners clip content */
+        }
+
+        /* Custom styles for progress bar colors */
+        .timer-bar-green { background-color: #22c55e; } /* green-500 */
+        .timer-bar-yellow { background-color: #eab308; } /* yellow-500 */
+        .timer-bar-red { background-color: #ef4444; } /* red-500 */
+
+        /* Custom styles for feedback icons */
+        .feedback-icon {
+            font-size: 3rem;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 10;
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out;
+        }
+        .feedback-icon.show {
+            opacity: 1;
+        }
+        .feedback-icon.correct {
+            color: #22c55e; /* green-500 */
+        }
+        .feedback-icon.incorrect {
+            color: #ef4444; /* red-500 */
+        }
+
+        /* Button hover effects */
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        .btn-secondary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        .btn-option:hover {
+            background-color: #e5e7eb; /* gray-200 */
+        }
+
+        /* Podium styling */
+        .podium-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-end;
+            margin: 0 1rem;
+            position: relative;
+        }
+        .podium-base {
+            width: 100%;
+            background-color: #d1d5db; /* gray-300 */
+            border-radius: 0.5rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding-top: 1rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        .podium-base.first {
+            height: 150px;
+            background-color: #fcd34d; /* amber-300 */
+        }
+        .podium-base.second {
+            height: 120px;
+            background-color: #d1d5db; /* gray-400 */
+        }
+        .podium-base.third {
+            height: 90px;
+            background-color: #b45309; /* amber-700 */
+        }
+        .podium-player-name {
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: #1f2937; /* gray-800 */
+        }
+        .podium-player-score {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #1f2937; /* gray-800 */
+        }
+
+        /* Modal specific styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.6);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .modal-content {
+            background-color: #ffffff;
+            border-radius: 1rem;
+            padding: 2rem;
+            max-width: 600px;
+            width: 90%;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            position: relative;
+        }
+    </style>
+</head>
+<body class="font-inter antialiased">
+    <div class="game-container">
+        <!-- Start Screen -->
+        <div id="startScreen" class="space-y-6">
+            <h1 class="text-5xl font-extrabold text-gray-900 mb-8">Persona Jurídica: El Desafío</h1>
+
+            <div id="playersInputContainer" class="space-y-4">
+                <!-- Player input fields will be added here by JS -->
+                <div class="flex items-center space-x-2">
+                    <input type="text" placeholder="Nombre del Jugador 1" class="player-name-input flex-grow p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <button type="button" class="remove-player-btn bg-red-500 text-white p-3 rounded-lg hover:bg-red-600 transition-all duration-200 hidden">Eliminar</button>
+                </div>
+            </div>
+
+            <div class="flex justify-center space-x-4 mt-6">
+                <button id="addPlayerBtn" class="btn-primary bg-green-600 text-white px-6 py-3 rounded-lg shadow-md hover:bg-green-700 transition-all duration-200">Añadir Jugador</button>
+                <button id="startGameBtn" class="btn-primary bg-blue-600 text-white px-8 py-3 rounded-lg shadow-md hover:bg-blue-700 transition-all duration-200">Comenzar Juego</button>
+            </div>
+            <button id="viewRulesBtn" class="btn-secondary bg-gray-200 text-gray-800 px-6 py-3 rounded-lg shadow-md hover:bg-gray-300 transition-all duration-200 mt-4">Ver Reglas del Juego</button>
+        </div>
+
+        <!-- Game Screen -->
+        <div id="gameScreen" class="hidden space-y-6">
+            <div class="flex justify-between items-center mb-6">
+                <div class="text-xl font-semibold text-gray-700">
+                    Jugador: <span id="currentPlayerName"></span>
+                </div>
+                <div class="text-xl font-semibold text-gray-700">
+                    Puntaje: <span id="currentPlayerScore">0</span>
+                </div>
+            </div>
+
+            <div class="w-full bg-gray-200 rounded-full h-4 mb-6">
+                <div id="questionProgressBar" class="bg-blue-500 h-4 rounded-full transition-all duration-300 ease-out" style="width: 0%;"></div>
+            </div>
+            <div class="text-lg font-medium text-gray-600 mb-6">Pregunta <span id="questionProgressText">0/5</span></div>
+
+            <h2 id="questionText" class="text-3xl font-bold text-gray-800 mb-8 min-h-[100px] flex items-center justify-center"></h2>
+
+            <div id="answerOptions" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                <!-- Answer buttons will be added here by JS -->
+            </div>
+
+            <div class="w-full bg-gray-300 rounded-full h-6 relative">
+                <div id="timerBar" class="h-full rounded-full transition-all duration-100 ease-linear timer-bar-green" style="width: 100%;"></div>
+                <span id="timerText" class="absolute inset-0 flex items-center justify-center text-white font-bold text-lg">20s</span>
+            </div>
+
+            <!-- Feedback Icon -->
+            <div id="feedbackIcon" class="feedback-icon hidden"></div>
+            <!-- Explanation Container -->
+            <div id="explanationContainer" class="hidden mt-4 p-4 bg-blue-100 border border-blue-300 text-blue-800 rounded-lg text-left">
+                <p class="font-semibold" id="feedbackTitle"></p>
+                <p id="correctAnswerText" class="mb-2"></p>
+                <p class="font-semibold">Explicación:</p>
+                <p id="explanationText" class="mb-4"></p> <!-- Added mb-4 for spacing -->
+                <button id="nextQuestionBtn" class="btn-primary bg-blue-600 text-white px-6 py-3 rounded-lg shadow-md hover:bg-blue-700 transition-all duration-200">Siguiente</button>
+            </div>
+        </div>
+
+        <!-- Results Screen -->
+        <div id="resultsScreen" class="hidden space-y-8">
+            <h2 class="text-4xl font-extrabold text-gray-900 mb-8">Resultados del Juego</h2>
+
+            <!-- Podium -->
+            <div id="podiumContainer" class="flex justify-center items-end h-48 mb-10">
+                <!-- Podium items will be generated here by JS -->
+            </div>
+
+            <!-- Score Table -->
+            <div class="overflow-x-auto">
+                <table class="min-w-full bg-white rounded-lg shadow-md">
+                    <thead>
+                        <tr class="bg-gray-100 text-gray-600 uppercase text-sm leading-normal">
+                            <th class="py-3 px-6 text-left rounded-tl-lg">Jugador</th>
+                            <th class="py-3 px-6 text-left">Puntaje Final</th>
+                            <th class="py-3 px-6 text-left rounded-tr-lg">ID de Usuario</th> <!-- Added for Firebase userId -->
+                        </tr>
+                    </thead>
+                    <tbody id="resultsTableBody" class="text-gray-700 text-sm font-light">
+                        <!-- Results rows will be added here by JS -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="flex justify-center space-x-4 mt-8">
+                <button id="downloadResultsBtn" class="btn-primary bg-green-600 text-white px-6 py-3 rounded-lg shadow-md hover:bg-green-700 transition-all duration-200">Descargar Resultados (CSV)</button>
+                <button id="playAgainBtn" class="btn-primary bg-blue-600 text-white px-8 py-3 rounded-lg shadow-md hover:bg-blue-700 transition-all duration-200">Jugar de Nuevo</button>
+            </div>
+        </div>
+
+        <!-- Rules Modal -->
+        <div id="rulesModal" class="modal-overlay hidden">
+            <div class="modal-content">
+                <h3 class="text-3xl font-bold text-gray-800 mb-6">Reglas del Juego</h3>
+                <ul class="list-disc list-inside text-left text-gray-700 space-y-2">
+                    <li>Cada jugador responderá 5 preguntas por turno.</li>
+                    <li>Se otorgan +5 puntos por respuesta correcta.</li>
+                    <li>Se resta -1 punto por respuesta incorrecta o tiempo agotado.</li>
+                    <li>El puntaje mínimo para cualquier jugador es 0.</li>
+                    <li>Cada pregunta tiene un límite de 20 segundos para ser respondida.</li>
+                    <li>Las preguntas no se repetirán a lo largo de la misma partida.</li>
+                    <li>Al finalizar el juego, se mostrará un podio con los 3 primeros lugares y una tabla de resultados.</li>
+                    <li>Los resultados finales podrán ser descargados en formato CSV.</li>
+                </ul>
+                <button id="closeRulesModalBtn" class="btn-primary bg-blue-600 text-white px-6 py-3 rounded-lg shadow-md hover:bg-blue-700 transition-all duration-200 mt-8">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Game state variables
+        let gameData = {
+            players: [],
+            currentPlayerIndex: 0,
+            currentQuestionIndex: 0, // Question index within the current player's turn (0-4)
+            questions: [],
+            usedQuestionIds: new Set(), // To ensure questions don't repeat across the entire game
+            gameState: 'start', // 'start', 'playing', 'results'
+            timerInterval: null,
+            timeLeft: 20,
+            correctSound: null,
+            incorrectSound: null,
+            gameEndSound: null,
+            backgroundMusic: null,
+        };
+
+        // DOM Elements
+        const startScreen = document.getElementById('startScreen');
+        const gameScreen = document.getElementById('gameScreen');
+        const resultsScreen = document.getElementById('resultsScreen');
+        const rulesModal = document.getElementById('rulesModal');
+
+        const playersInputContainer = document.getElementById('playersInputContainer');
+        const addPlayerBtn = document.getElementById('addPlayerBtn');
+        const startGameBtn = document.getElementById('startGameBtn');
+        const viewRulesBtn = document.getElementById('viewRulesBtn');
+        const closeRulesModalBtn = document.getElementById('closeRulesModalBtn');
+
+        const currentPlayerNameSpan = document.getElementById('currentPlayerName');
+        const currentPlayerScoreSpan = document.getElementById('currentPlayerScore');
+        const questionProgressBar = document.getElementById('questionProgressBar');
+        const questionProgressText = document.getElementById('questionProgressText');
+        const questionTextElement = document.getElementById('questionText');
+        const answerOptionsDiv = document.getElementById('answerOptions');
+        const timerBar = document.getElementById('timerBar');
+        const timerText = document.getElementById('timerText');
+        const feedbackIcon = document.getElementById('feedbackIcon');
+        const explanationContainer = document.getElementById('explanationContainer');
+        const feedbackTitle = document.getElementById('feedbackTitle'); // New element for feedback title
+        const correctAnswerText = document.getElementById('correctAnswerText');
+        const explanationText = document.getElementById('explanationText');
+        const nextQuestionBtn = document.getElementById('nextQuestionBtn');
+
+
+        const podiumContainer = document.getElementById('podiumContainer');
+        const resultsTableBody = document.getElementById('resultsTableBody');
+        const downloadResultsBtn = document.getElementById('downloadResultsBtn');
+        const playAgainBtn = document.getElementById('playAgainBtn');
+
+        // Game Configuration
+        const QUESTIONS_PER_PLAYER_TURN = 5;
+        const TIME_PER_QUESTION = 20;
+        const CORRECT_SCORE = 5;
+        const INCORRECT_SCORE = -1;
+        const MAX_PLAYERS = 5;
+
+        // --- Questions Data ---
+        // At least 25 questions about 'Persona Jurídica'
+        const allQuestions = [
+            { id: 1, question: "¿Qué es una Persona Jurídica?", options: ["Un individuo con derechos y obligaciones", "Una entidad ficticia creada por ley con capacidad legal", "Un grupo de personas sin fines de lucro", "Una empresa unipersonal"], correct: 1, explanation: "Una Persona Jurídica es una entidad con existencia legal independiente de sus miembros, creada para cumplir un fin específico." },
+            { id: 2, question: "¿Cuál de los siguientes NO es un atributo de la Persona Jurídica?", options: ["Nacionalidad", "Nombre", "Estado Civil", "Patrimonio"], correct: 2, explanation: "El Estado Civil es un atributo de las personas naturales. Las Personas Jurídicas tienen nombre, domicilio, nacionalidad y patrimonio, entre otros." },
+            { id: 3, question: "¿Qué tipo de Persona Jurídica es una sociedad anónima?", options: ["De derecho público", "De derecho privado", "Mixta", "Sin fines de lucro"], correct: 1, explanation: "Una sociedad anónima es una Persona Jurídica de derecho privado, ya que es creada por particulares con fines de lucro." },
+            { id: 4, question: "¿Cuál es la principal característica de la Persona Jurídica respecto a sus miembros?", options: ["Responsabilidad ilimitada de los miembros", "Independencia patrimonial de los miembros", "Los miembros son personalmente responsables de las deudas", "No tiene patrimonio propio"], correct: 1, explanation: "La Persona Jurídica tiene un patrimonio propio e independiente del patrimonio de sus miembros, lo que implica una responsabilidad limitada para estos últimos." },
+            { id: 5, question: "¿Qué documento es fundamental para la constitución de una Persona Jurídica?", options: ["Acta de nacimiento", "Contrato de trabajo", "Escritura pública de constitución", "DNI de los socios"], correct: 2, explanation: "La Escritura Pública de Constitución es el documento legal que formaliza la creación de una Persona Jurídica y establece sus estatutos." },
+            { id: 6, question: "¿Quién representa legalmente a una Persona Jurídica?", options: ["Cualquier socio", "El gerente o administrador", "Un abogado externo", "El fundador"], correct: 1, explanation: "El gerente o administrador es la persona designada para actuar en nombre y representación legal de la Persona Jurídica." },
+            { id: 7, question: "¿Puede una Persona Jurídica adquirir bienes y contraer obligaciones?", options: ["No, solo las personas naturales pueden", "Sí, tiene plena capacidad legal para ello", "Solo si es una empresa estatal", "Depende de su tamaño"], correct: 1, explanation: "Sí, la Persona Jurídica tiene capacidad legal para adquirir derechos (bienes) y contraer obligaciones (deudas) en el ejercicio de su objeto social." },
+            { id: 8, question: "¿Qué significa que una Persona Jurídica tiene domicilio?", options: ["Que tiene una casa donde viven sus miembros", "Que tiene un lugar físico donde se le puede notificar legalmente", "Que puede mudarse libremente", "Que es una entidad sin sede fija"], correct: 1, explanation: "El domicilio de una Persona Jurídica es el lugar donde se encuentra su sede principal o donde ejerce sus principales actividades, y es donde se le pueden realizar notificaciones legales." },
+            { id: 9, question: "¿Cuál es la finalidad de la Persona Jurídica?", options: ["Siempre obtener lucro", "Realizar actividades económicas o sociales con un fin determinado", "Evitar impuestos", "Solo para grandes empresas"], correct: 1, explanation: "La finalidad de una Persona Jurídica es la realización de actividades económicas, sociales, culturales, benéficas, etc., de acuerdo con su objeto social." },
+            { id: 10, question: "¿Qué ocurre con la Persona Jurídica si todos sus miembros fallecen?", options: ["Desaparece automáticamente", "Se disuelve, pero su patrimonio puede ser liquidado", "Sus deudas se transfieren a los herederos", "El estado la asume"], correct: 1, explanation: "El fallecimiento de todos los miembros no extingue automáticamente la Persona Jurídica. Generalmente, se inicia un proceso de disolución y liquidación de su patrimonio." },
+            { id: 11, question: "¿Es una fundación una Persona Jurídica?", options: ["No, es una organización sin fines de lucro", "Sí, es una Persona Jurídica de derecho privado sin fines de lucro", "Solo si tiene patrimonio muy grande", "Depende del país"], correct: 1, explanation: "Sí, una fundación es una Persona Jurídica de derecho privado que se constituye sin fines de lucro, con un patrimonio destinado a un fin de interés general." },
+            { id: 12, question: "¿Qué es la capacidad de una Persona Jurídica?", options: ["Su habilidad para hacer negocios", "La aptitud para ser titular de derechos y obligaciones", "El número de empleados que tiene", "Su solvencia económica"], correct: 1, explanation: "La capacidad de una Persona Jurídica es su aptitud legal para adquirir derechos y contraer obligaciones, limitada por su objeto social y las leyes." },
+            { id: 13, question: "¿Qué es el objeto social de una Persona Jurídica?", options: ["La cantidad de dinero que posee", "La actividad principal a la que se dedica", "El número de socios", "Su dirección fiscal"], correct: 1, explanation: "El objeto social es la actividad o conjunto de actividades a las que se dedicará la Persona Jurídica, y debe estar claramente definido en sus estatutos." },
+            { id: 14, question: "¿Puede una Persona Jurídica ser demandada judicialmente?", options: ["No, solo las personas naturales", "Sí, puede ser parte en procesos judiciales", "Solo si comete un delito grave", "Solo si es una empresa muy grande"], correct: 1, explanation: "Sí, la Persona Jurídica, al tener personalidad jurídica, puede ser demandada y demandar en los tribunales, al igual que una persona natural." },
+            { id: 15, question: "¿Qué diferencia a una Persona Jurídica de una Persona Natural?", options: ["Su edad", "Su existencia legal independiente de sus miembros", "Su capacidad para hablar", "Su color de piel"], correct: 1, explanation: "La principal diferencia es que la Persona Jurídica tiene una existencia legal propia y distinta a la de sus miembros individuales." },
+            { id: 16, question: "¿Qué es la disolución de una Persona Jurídica?", options: ["Cuando cambia de nombre", "El proceso por el cual deja de existir legalmente", "Cuando vende todos sus bienes", "Cuando se fusiona con otra"], correct: 1, explanation: "La disolución es el acto jurídico que marca el inicio del fin de la existencia de una Persona Jurídica, generalmente seguido de la liquidación." },
+            { id: 17, question: "¿Qué es la liquidación de una Persona Jurídica?", options: ["El pago de sus impuestos", "El proceso de convertir sus activos en dinero para pagar deudas y distribuir el remanente", "La venta de sus acciones", "La contratación de nuevos empleados"], correct: 1, explanation: "La liquidación es el proceso posterior a la disolución, donde se venden los activos, se pagan las deudas y el remanente se distribuye entre los socios o se destina a fines benéficos." },
+            { id: 18, question: "¿Cuál es la importancia del Registro Público para una Persona Jurídica?", options: ["Es solo un trámite burocrático", "Le otorga publicidad y oponibilidad frente a terceros", "Sirve para pagar menos impuestos", "Solo es necesario para empresas extranjeras"], correct: 1, explanation: "El Registro Público (o Mercantil) le da publicidad a la existencia de la Persona Jurídica y a sus actos, haciéndolos oponibles a terceros." },
+            { id: 19, question: "¿Una asociación es una Persona Jurídica?", options: ["No, es un grupo de amigos", "Sí, si cumple con los requisitos legales para su constitución", "Solo si es muy grande", "Solo si tiene ánimo de lucro"], correct: 1, explanation: "Sí, una asociación es una Persona Jurídica si se constituye legalmente, con un grupo de personas que se unen para un fin común, generalmente sin ánimo de lucro." },
+            { id: 20, question: "¿Qué es la razón social de una Persona Jurídica?", options: ["Su número de identificación fiscal", "El nombre con el que se identifica legalmente", "Su dirección de correo electrónico", "El nombre de su fundador"], correct: 1, explanation: "La razón social es el nombre oficial y legal de una Persona Jurídica, bajo el cual se inscribe en los registros y realiza sus operaciones." },
+            { id: 21, question: "¿Puede una Persona Jurídica tener varias nacionalidades?", options: ["Sí, en algunos casos", "No, solo una", "Depende del tipo de Persona Jurídica", "Solo si es una multinacional"], correct: 1, explanation: "Generalmente, una Persona Jurídica tiene la nacionalidad del país donde se constituyó. Sin embargo, en el ámbito internacional, puede tener vínculos con varias jurisdicciones." },
+            { id: 22, question: "¿Qué es un órgano de gobierno en una Persona Jurídica?", options: ["Un edificio donde opera la empresa", "La estructura que toma decisiones y administra la entidad", "Un departamento de recursos humanos", "Un comité de empleados"], correct: 1, explanation: "Los órganos de gobierno (como la junta de accionistas, el consejo de administración) son las estructuras que toman las decisiones importantes y administran la Persona Jurídica." },
+            { id: 23, question: "¿Las universidades públicas son Personas Jurídicas?", options: ["No, son instituciones educativas", "Sí, son Personas Jurídicas de derecho público", "Solo si son privadas", "Depende de su tamaño"], correct: 1, explanation: "Sí, las universidades públicas son Personas Jurídicas de derecho público, creadas por el Estado para cumplir funciones de interés público." },
+            { id: 24, question: "¿Qué es el capital social de una Persona Jurídica?", options: ["El número de empleados", "La suma de los aportes de los socios o accionistas", "El dinero en efectivo que tiene", "Sus ganancias anuales"], correct: 1, explanation: "El capital social es el valor total de los aportes (dinero, bienes) realizados por los socios o accionistas al momento de la constitución de la Persona Jurídica." },
+            { id: 25, question: "¿La Iglesia es una Persona Jurídica en muchos países?", options: ["No, es una institución religiosa", "Sí, es reconocida como Persona Jurídica de derecho público o privado", "Solo si tiene fines de lucro", "Solo si es muy antigua"], correct: 1, explanation: "En muchos países, las iglesias y otras instituciones religiosas son reconocidas como Personas Jurídicas, ya sea de derecho público o privado, para fines legales y administrativos." },
+            { id: 26, question: "¿Qué es la responsabilidad limitada en una Persona Jurídica?", options: ["Que los socios responden con todo su patrimonio", "Que los socios solo responden hasta el monto de su aporte al capital social", "Que la empresa no tiene deudas", "Que solo los directivos son responsables"], correct: 1, explanation: "La responsabilidad limitada significa que los socios o accionistas solo son responsables por las deudas de la Persona Jurídica hasta el monto de su capital aportado, protegiendo su patrimonio personal." },
+            { id: 27, question: "¿Un club deportivo es una Persona Jurídica?", options: ["No, es solo un grupo de personas", "Sí, si está legalmente constituido", "Solo si es profesional", "Solo si tiene muchos miembros"], correct: 1, explanation: "Sí, un club deportivo puede ser una Persona Jurídica si se constituye legalmente (por ejemplo, como asociación o sociedad deportiva) para organizar actividades deportivas." },
+            { id: 28, question: "¿Qué es la fusión de Personas Jurídicas?", options: ["Cuando una empresa compra a otra", "Cuando dos o más Personas Jurídicas se unen para formar una nueva o una absorbe a la otra", "Cuando una empresa cierra", "Cuando una empresa cambia de nombre"], correct: 1, explanation: "La fusión es un proceso por el cual dos o más Personas Jurídicas se unen, ya sea para formar una nueva entidad o para que una absorba a la otra, extinguiéndose las fusionadas o absorbidas." },
+            { id: 29, question: "¿La escisión de Personas Jurídicas implica?", options: ["Que una empresa se divide en dos o más nuevas", "Que una empresa se fusiona", "Que una empresa cierra", "Que una empresa cambia de actividad"], correct: 1, explanation: "La escisión es el acto por el cual una Persona Jurídica divide su patrimonio en dos o más partes, que son traspasadas a nuevas sociedades o a sociedades ya existentes." },
+            { id: 30, question: "¿Cuál es el rol de los estatutos en una Persona Jurídica?", options: ["Son solo un reglamento interno", "Establecen las normas de funcionamiento y organización de la entidad", "Definen los salarios de los empleados", "Son solo para empresas grandes"], correct: 1, explanation: "Los estatutos son el conjunto de normas fundamentales que rigen el funcionamiento, la organización, los derechos y obligaciones de los miembros de una Persona Jurídica." },
+        ];
+
+
+        // --- Audio Setup (Tone.js) ---
+        const setupAudio = () => {
+            // Replaced Tone.Player with Tone.Synth for direct sound generation
+            gameData.correctSound = new Tone.Synth().toDestination();
+            gameData.incorrectSound = new Tone.Synth().toDestination();
+            gameData.gameEndSound = new Tone.MembraneSynth().toDestination(); // For a more percussive end sound
+            gameData.backgroundMusic = new Tone.PolySynth(Tone.Synth, {
+                oscillator: {
+                    type: "sine"
+                },
+                envelope: {
+                    attack: 0.005,
+                    decay: 0.1,
+                    sustain: 0.3,
+                    release: 1
+                }
+            }).toDestination();
+            gameData.backgroundMusic.volume.value = -20; // Lower volume for background music
+        };
+
+        // --- Utility Functions ---
+        const shuffleArray = (array) => {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+        };
+
+        const showScreen = (screenToShow) => {
+            startScreen.classList.add('hidden');
+            gameScreen.classList.add('hidden');
+            resultsScreen.classList.add('hidden');
+            rulesModal.classList.add('hidden');
+            screenToShow.classList.remove('hidden');
+        };
+
+        const saveGameState = () => {
+            try {
+                const stateToSave = {
+                    players: gameData.players,
+                    currentPlayerIndex: gameData.currentPlayerIndex,
+                    currentQuestionIndex: gameData.currentQuestionIndex,
+                    usedQuestionIds: Array.from(gameData.usedQuestionIds), // Convert Set to Array for storage
+                    gameState: gameData.gameState,
+                    // Do not save timerInterval or Tone.js objects
+                };
+                localStorage.setItem('personaJuridicaGame', JSON.stringify(stateToSave));
+                console.log("Game state saved.");
+            } catch (error) {
+                console.error("Error saving game state to localStorage:", error);
+            }
+        };
+
+        const loadGameState = () => {
+            try {
+                const savedState = localStorage.getItem('personaJuridicaGame');
+                if (savedState) {
+                    const loadedData = JSON.parse(savedState);
+                    gameData.players = loadedData.players || [];
+                    gameData.currentPlayerIndex = loadedData.currentPlayerIndex || 0;
+                    gameData.currentQuestionIndex = loadedData.currentQuestionIndex || 0;
+                    gameData.usedQuestionIds = new Set(loadedData.usedQuestionIds || []);
+                    gameData.gameState = loadedData.gameState || 'start';
+                    console.log("Game state loaded.");
+                    return true;
+                }
+            } catch (error) {
+                console.error("Error loading game state from localStorage:", error);
+            }
+            return false;
+        };
+
+        const resetGame = () => {
+            gameData.players = [];
+            gameData.currentPlayerIndex = 0;
+            gameData.currentQuestionIndex = 0;
+            gameData.usedQuestionIds.clear();
+            gameData.gameState = 'start';
+            clearInterval(gameData.timerInterval);
+            gameData.timeLeft = TIME_PER_QUESTION;
+            if (gameData.backgroundMusic && gameData.backgroundMusic.state === 'started') {
+                gameData.backgroundMusic.stop();
+            }
+            localStorage.removeItem('personaJuridicaGame'); // Clear saved state
+            setupInitialPlayersInput();
+            showScreen(startScreen);
+        };
+
+        // --- Player Management on Start Screen ---
+        const addPlayerInput = () => {
+            if (playersInputContainer.children.length >= MAX_PLAYERS) {
+                return;
+            }
+
+            const playerDiv = document.createElement('div');
+            playerDiv.className = 'flex items-center space-x-2';
+            playerDiv.innerHTML = `
+                <input type="text" placeholder="Nombre del Jugador ${playersInputContainer.children.length + 1}" class="player-name-input flex-grow p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button type="button" class="remove-player-btn bg-red-500 text-white p-3 rounded-lg hover:bg-red-600 transition-all duration-200">Eliminar</button>
+            `;
+            playersInputContainer.appendChild(playerDiv);
+            updateRemoveButtonsVisibility();
+        };
+
+        const removePlayerInput = (event) => {
+            if (playersInputContainer.children.length > 1) {
+                event.target.closest('.flex').remove();
+                updateRemoveButtonsVisibility();
+                updatePlayerInputPlaceholders();
+            }
+        };
+
+        const updateRemoveButtonsVisibility = () => {
+            const removeButtons = document.querySelectorAll('.remove-player-btn');
+            if (playersInputContainer.children.length === 1) {
+                removeButtons[0].classList.add('hidden');
+            } else {
+                removeButtons.forEach(btn => btn.classList.remove('hidden'));
+            }
+        };
+
+        const updatePlayerInputPlaceholders = () => {
+            const inputs = document.querySelectorAll('.player-name-input');
+            inputs.forEach((input, index) => {
+                input.placeholder = `Nombre del Jugador ${index + 1}`;
+            });
+        };
+
+        const setupInitialPlayersInput = () => {
+            playersInputContainer.innerHTML = ''; // Clear existing inputs
+            addPlayerInput(); // Add the first input
+            updateRemoveButtonsVisibility();
+        };
+
+        // --- Game Logic Functions ---
+        const startGame = () => {
+            const playerInputs = document.querySelectorAll('.player-name-input');
+            const playerNames = Array.from(playerInputs)
+                .map(input => input.value.trim())
+                .filter(name => name !== '');
+
+            if (playerNames.length === 0) {
+                showMessage("Por favor, ingresa al menos un nombre de jugador.", "error");
+                return;
+            }
+
+            gameData.players = playerNames.map(name => ({
+                name: name,
+                score: 0,
+                questionScores: [] // To store score for each of the 5 questions
+            }));
+            gameData.currentPlayerIndex = 0;
+            gameData.currentQuestionIndex = 0;
+            gameData.usedQuestionIds.clear(); // Reset used questions for a new game
+            gameData.gameState = 'playing';
+
+            // Shuffle all questions at the start of the game
+            shuffleArray(allQuestions);
+            gameData.questions = [...allQuestions]; // Use a copy of all questions
+
+            showScreen(gameScreen);
+            playBackgroundMusic();
+            startPlayerTurn();
+            saveGameState(); // Save initial game state
+        };
+
+        const startPlayerTurn = () => {
+            const currentPlayer = gameData.players[gameData.currentPlayerIndex];
+            currentPlayerNameSpan.textContent = currentPlayer.name;
+            currentPlayerScoreSpan.textContent = currentPlayer.score;
+            gameData.currentQuestionIndex = 0; // Reset question index for new player
+            loadNextQuestion();
+        };
+
+        const loadNextQuestion = () => {
+            // Hide explanation container and next button for the new question
+            explanationContainer.classList.add('hidden');
+            feedbackTitle.textContent = ''; // Clear feedback title
+            correctAnswerText.textContent = '';
+            explanationText.textContent = '';
+            nextQuestionBtn.classList.add('hidden'); // Hide the next button
+
+            // Enable answer buttons for the new question
+            Array.from(answerOptionsDiv.children).forEach(button => {
+                button.disabled = false;
+                button.classList.remove('bg-green-200', 'border-2', 'border-green-500', 'bg-red-200', 'border-red-500'); // Remove previous highlight
+            });
+
+            if (gameData.currentQuestionIndex >= QUESTIONS_PER_PLAYER_TURN) {
+                // Current player has finished their turn
+                endPlayerTurn();
+                return;
+            }
+
+            // Clear previous feedback
+            feedbackIcon.classList.add('hidden');
+            feedbackIcon.classList.remove('correct', 'incorrect', 'show');
+
+            const availableQuestions = gameData.questions.filter(q => !gameData.usedQuestionIds.has(q.id));
+            if (availableQuestions.length === 0) {
+                // Ran out of unique questions, should not happen with 25+ questions and 5 per player
+                console.warn("No more unique questions available!");
+                // Optionally, reset usedQuestionIds or end game
+                endGame();
+                return;
+            }
+
+            // Get a random question from the available ones
+            const randomIndex = Math.floor(Math.random() * availableQuestions.length);
+            const currentQuestion = availableQuestions[randomIndex];
+
+            // Mark question as used
+            gameData.usedQuestionIds.add(currentQuestion.id);
+
+            questionTextElement.textContent = currentQuestion.question;
+            answerOptionsDiv.innerHTML = ''; // Clear previous options
+
+            // Store the current question for feedback
+            gameData.currentQuestion = currentQuestion;
+
+            // Shuffle options for the current question
+            const shuffledOptions = [...currentQuestion.options];
+            shuffleArray(shuffledOptions);
+
+            shuffledOptions.forEach((option, index) => {
+                const button = document.createElement('button');
+                button.className = 'btn-option bg-gray-100 text-gray-800 p-4 rounded-lg shadow-sm hover:bg-gray-200 transition-colors duration-200 text-lg font-medium text-left';
+                button.textContent = option;
+                button.onclick = () => checkAnswer(option, currentQuestion.options[currentQuestion.correct]);
+                answerOptionsDiv.appendChild(button);
+            });
+
+            updateQuestionProgress();
+            startTimer();
+        };
+
+        const updateQuestionProgress = () => {
+            questionProgressText.textContent = `${gameData.currentQuestionIndex + 1}/${QUESTIONS_PER_PLAYER_TURN}`;
+            const progress = ((gameData.currentQuestionIndex + 1) / QUESTIONS_PER_PLAYER_TURN) * 100;
+            questionProgressBar.style.width = `${progress}%`;
+        };
+
+        const startTimer = () => {
+            clearInterval(gameData.timerInterval);
+            gameData.timeLeft = TIME_PER_QUESTION;
+            updateTimerDisplay();
+
+            gameData.timerInterval = setInterval(() => {
+                gameData.timeLeft--;
+                updateTimerDisplay();
+
+                if (gameData.timeLeft <= 0) {
+                    clearInterval(gameData.timerInterval);
+                    checkAnswer(null, null); // Time's up, treat as incorrect
+                }
+            }, 1000);
+        };
+
+        const updateTimerDisplay = () => {
+            timerText.textContent = `${gameData.timeLeft}s`;
+            const progress = (gameData.timeLeft / TIME_PER_QUESTION) * 100;
+            timerBar.style.width = `${progress}%`;
+
+            if (gameData.timeLeft > TIME_PER_QUESTION / 2) {
+                timerBar.className = 'h-full rounded-full transition-all duration-100 ease-linear timer-bar-green';
+            } else if (gameData.timeLeft > TIME_PER_QUESTION / 4) {
+                timerBar.className = 'h-full rounded-full transition-all duration-100 ease-linear timer-bar-yellow';
+            } else {
+                timerBar.className = 'h-full rounded-full transition-all duration-100 ease-linear timer-bar-red';
+            }
+        };
+
+        const checkAnswer = (selectedOption, correctAnswer) => {
+            clearInterval(gameData.timerInterval); // Stop the timer
+
+            const currentPlayer = gameData.players[gameData.currentPlayerIndex];
+            let scoreChange = 0;
+            let isCorrect = false;
+
+            if (selectedOption === correctAnswer) {
+                scoreChange = CORRECT_SCORE;
+                isCorrect = true;
+                gameData.correctSound.triggerAttackRelease("C5", "8n"); // Play a C5 note for correct
+                feedbackIcon.className = 'feedback-icon show correct';
+                feedbackIcon.innerHTML = '&#10003;'; // Checkmark
+
+                // Show positive feedback and explanation for correct answer
+                explanationContainer.classList.remove('hidden');
+                feedbackTitle.textContent = "¡Correcto!";
+                correctAnswerText.textContent = `La respuesta correcta es: ${gameData.currentQuestion.options[gameData.currentQuestion.correct]}`;
+                explanationText.textContent = `Explicación: ${gameData.currentQuestion.explanation}`;
+                nextQuestionBtn.classList.remove('hidden'); // Show the next button
+            } else {
+                scoreChange = INCORRECT_SCORE;
+                gameData.incorrectSound.triggerAttackRelease("C3", "8n"); // Play a C3 note for incorrect
+                feedbackIcon.className = 'feedback-icon show incorrect';
+                feedbackIcon.innerHTML = '&#10007;'; // X mark
+
+                // Show correct answer and explanation for incorrect answer
+                explanationContainer.classList.remove('hidden');
+                feedbackTitle.textContent = "¡Incorrecto!";
+                correctAnswerText.textContent = `La respuesta correcta era: ${gameData.currentQuestion.options[gameData.currentQuestion.correct]}`;
+                explanationText.textContent = `Explicación: ${gameData.currentQuestion.explanation}`;
+                nextQuestionBtn.classList.remove('hidden'); // Show the next button
+            }
+
+            // Update player score, ensuring it doesn't go below 0
+            currentPlayer.score = Math.max(0, currentPlayer.score + scoreChange);
+            currentPlayer.questionScores.push(scoreChange); // Store score for this question
+
+            currentPlayerScoreSpan.textContent = currentPlayer.score;
+
+            // Disable answer buttons during feedback
+            Array.from(answerOptionsDiv.children).forEach(button => {
+                button.disabled = true;
+                if (button.textContent === correctAnswer) {
+                    button.classList.add('bg-green-200', 'border-2', 'border-green-500'); // Highlight correct answer
+                } else if (button.textContent === selectedOption && !isCorrect) {
+                    button.classList.add('bg-red-200', 'border-2', 'border-red-500'); // Highlight incorrect selected answer
+                }
+            });
+
+            // The next question will be loaded by clicking the "Siguiente" button
+        };
+
+        const endPlayerTurn = () => {
+            gameData.currentPlayerIndex++;
+            if (gameData.currentPlayerIndex < gameData.players.length) {
+                // Next player's turn
+                showMessage(`¡Turno de ${gameData.players[gameData.currentPlayerIndex].name}!`, "info");
+                setTimeout(startPlayerTurn, 2000); // Small delay before next player starts
+            } else {
+                // All players have finished
+                endGame();
+            }
+        };
+
+        const endGame = () => {
+            gameData.gameState = 'results';
+            clearInterval(gameData.timerInterval);
+            if (gameData.backgroundMusic) {
+                gameData.backgroundMusic.releaseAll(); // Release all notes for background music
+            }
+            gameData.gameEndSound.triggerAttackRelease("C2", "1n"); // Play a low C note for game end
+            showResultsScreen();
+            saveGameState(); // Save final game state
+            saveGameResultsToFirestore(); // Save results to Firebase
+        };
+
+        // --- Results Screen Functions ---
+        const showResultsScreen = () => {
+            showScreen(resultsScreen);
+            displayPodium();
+            displayResultsTable();
+        };
+
+        const displayPodium = () => {
+            podiumContainer.innerHTML = '';
+            const sortedPlayers = [...gameData.players].sort((a, b) => b.score - a.score);
+
+            const podiumOrder = [
+                { rank: 2, className: 'second', height: 'h-3/4' }, // 2nd place
+                { rank: 1, className: 'first', height: 'h-full' },  // 1st place
+                { rank: 3, className: 'third', height: 'h-1/2' }   // 3rd place
+            ];
+
+            // Reorder for visual display: 2nd, 1st, 3rd
+            const visualPodiumPlayers = [];
+            if (sortedPlayers.length > 1) visualPodiumPlayers[0] = sortedPlayers[1]; // 2nd
+            if (sortedPlayers.length > 0) visualPodiumPlayers[1] = sortedPlayers[0]; // 1st
+            if (sortedPlayers.length > 2) visualPodiumPlayers[2] = sortedPlayers[2]; // 3rd
+
+            podiumOrder.forEach((item, index) => {
+                const player = visualPodiumPlayers[index];
+                if (player) {
+                    const podiumItem = document.createElement('div');
+                    podiumItem.className = `podium-item flex-1 flex flex-col items-center`;
+                    podiumItem.innerHTML = `
+                        <div class="text-2xl font-bold mb-2">${item.rank === 1 ? '🥇' : (item.rank === 2 ? '🥈' : '🥉')}</div>
+                        <div class="podium-base ${item.className} w-full max-w-[150px] flex-grow flex flex-col justify-center items-center p-2">
+                            <div class="podium-player-name text-center text-lg">${player.name}</div>
+                            <div class="podium-player-score text-2xl">${player.score} pts</div>
+                        </div>
+                    `;
+                    podiumContainer.appendChild(podiumItem);
+                }
+            });
+        };
+
+
+        const displayResultsTable = () => {
+            resultsTableBody.innerHTML = '';
+            const sortedPlayers = [...gameData.players].sort((a, b) => b.score - a.score);
+
+            sortedPlayers.forEach(player => {
+                const row = document.createElement('tr');
+                row.className = 'border-b border-gray-200 hover:bg-gray-100';
+                row.innerHTML = `
+                    <td class="py-3 px-6 text-left whitespace-nowrap font-medium">${player.name}</td>
+                    <td class="py-3 px-6 text-left">${player.score}</td>
+                    <td class="py-3 px-6 text-left text-xs text-gray-500">${window.userId}</td>
+                `;
+                resultsTableBody.appendChild(row);
+            });
+        };
+
+        const downloadResultsCSV = () => {
+            let csvContent = "Jugador,Puntaje Pregunta 1,Puntaje Pregunta 2,Puntaje Pregunta 3,Puntaje Pregunta 4,Puntaje Pregunta 5,Puntaje Final\n";
+
+            gameData.players.forEach(player => {
+                const questionScores = player.questionScores.join(',');
+                csvContent += `${player.name},${questionScores},${player.score}\n`;
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            if (link.download !== undefined) { // Feature detection for download attribute
+                const url = URL.createObjectURL(blob);
+                link.setAttribute('href', url);
+                link.setAttribute('download', 'resultados_persona_juridica.csv');
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } else {
+                showMessage("Su navegador no soporta la descarga directa de CSV. Por favor, copie el texto a continuación y péguelo en un archivo de texto y guárdelo como .csv:\n\n" + csvContent, "info");
+            }
+        };
+
+        // --- Firebase Integration ---
+        const saveGameResultsToFirestore = async () => {
+            // Check if Firestore is initialized and functions are available globally
+            if (!window.db || !window.auth || !window.userId || window.userId === 'guest' || !window.fbCollection || !window.fbAddDoc) {
+                console.warn("Firestore not initialized or user not authenticated or Firebase functions not globally available. Cannot save results.");
+                showMessage("No se pudieron guardar los resultados. Por favor, recarga la página e inténtalo de nuevo.", "error");
+                return;
+            }
+
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+            // Corrected collection path to comply with public data rules
+            const collectionPath = `artifacts/${appId}/public/data/gameSessions`;
+
+            try {
+                const sessionData = {
+                    sessionId: crypto.randomUUID(),
+                    date: new Date().toISOString(),
+                    userId: window.userId,
+                    players: gameData.players.map(player => ({
+                        name: player.name,
+                        finalScore: player.score,
+                        questionScores: player.questionScores // Array of scores for each question
+                    })),
+                    gameName: "Persona Jurídica: El Desafío"
+                };
+
+                // Use the globally exposed Firebase functions
+                await window.fbAddDoc(window.fbCollection(window.db, collectionPath), sessionData);
+                console.log("Game results saved to Firestore!");
+                showMessage("Resultados guardados en la nube.", "success");
+            } catch (error) {
+                console.error("Error saving game results to Firestore:", error);
+                showMessage("Error al guardar los resultados en la nube. Inténtalo de nuevo.", "error");
+            }
+        };
+
+
+        // --- Message Box (instead of alert) ---
+        const showMessage = (message, type = "info") => {
+            const messageBox = document.createElement('div');
+            messageBox.className = `fixed bottom-4 right-4 p-4 rounded-lg shadow-lg text-white z-[1001]`;
+            if (type === "success") {
+                messageBox.classList.add('bg-green-500');
+            } else if (type === "error") {
+                messageBox.classList.add('bg-red-500');
+            } else {
+                messageBox.classList.add('bg-blue-500');
+            }
+            messageBox.textContent = message;
+            document.body.appendChild(messageBox);
+            setTimeout(() => {
+                messageBox.remove();
+            }, 3000);
+        };
+
+        // --- Event Listeners ---
+        window.onload = () => {
+            setupAudio();
+            setupInitialPlayersInput(); // Ensure at least one player input is present
+            if (loadGameState()) {
+                // If a game state was loaded, decide which screen to show
+                if (gameData.gameState === 'playing') {
+                    showScreen(gameScreen);
+                    playBackgroundMusic();
+                    // Re-initialize timer and question display
+                    currentPlayerNameSpan.textContent = gameData.players[gameData.currentPlayerIndex].name;
+                    currentPlayerScoreSpan.textContent = gameData.players[gameData.currentPlayerIndex].score;
+                    // Need to find the current question based on gameData.currentQuestionIndex and usedQuestionIds
+                    // This is tricky if the exact question object isn't saved.
+                    // For simplicity, let's just restart the current player's turn from question 1 if loaded.
+                    // A more robust solution would save the actual question ID for the current question.
+                    // For now, we'll just start the current player's turn over.
+                    startPlayerTurn();
+                    showMessage("Partida reanudada desde el último punto guardado.", "info");
+                } else if (gameData.gameState === 'results') {
+                    showResultsScreen();
+                    showMessage("Resultados de la última partida cargados.", "info");
+                } else {
+                    showScreen(startScreen);
+                }
+            } else {
+                showScreen(startScreen);
+            }
+        };
+
+        addPlayerBtn.addEventListener('click', addPlayerInput);
+        playersInputContainer.addEventListener('click', (event) => {
+            if (event.target.classList.contains('remove-player-btn')) {
+                removePlayerInput(event);
+            }
+        });
+        startGameBtn.addEventListener('click', startGame);
+        viewRulesBtn.addEventListener('click', () => showScreen(rulesModal));
+        closeRulesModalBtn.addEventListener('click', () => {
+            if (gameData.gameState === 'start') {
+                showScreen(startScreen);
+            } else if (gameData.gameState === 'playing') {
+                showScreen(gameScreen);
+            } else if (gameData.gameState === 'results') {
+                showScreen(resultsScreen);
+            }
+        });
+        downloadResultsBtn.addEventListener('click', downloadResultsCSV);
+        playAgainBtn.addEventListener('click', resetGame);
+        nextQuestionBtn.addEventListener('click', () => { // New event listener for the next button
+            gameData.currentQuestionIndex++;
+            saveGameState();
+            loadNextQuestion();
+        });
+
+
+        // Background music control
+        const playBackgroundMusic = async () => {
+            if (gameData.backgroundMusic) {
+                try {
+                    await Tone.start(); // Start Tone.js context
+                    // Play a simple chord progression for background music
+                    const notes = ["C4", "E4", "G4"];
+                    gameData.backgroundMusic.triggerAttack(notes, Tone.now());
+                    gameData.backgroundMusic.triggerRelease(notes, Tone.now() + 10); // Hold notes for 10 seconds, then release
+                } catch (e) {
+                    console.error("Error starting background music:", e);
+                }
+            }
+        };
+    </script>
+</body>
+</html>
